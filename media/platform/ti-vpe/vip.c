@@ -46,6 +46,10 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "debug level (0-8)");
 
+static bool dual=false;
+module_param(debug, bool, 0644);
+
+
 /*
  * Minimum and maximum frame sizes
  */
@@ -252,6 +256,73 @@ static struct vip_fmt *find_port_format_by_pix(struct vip_port *port,
 
 	return NULL;
 }
+
+
+/*
+ * Find our format description corresponding to the passed v4l2_format
+ * given fourcc of V4L2 pixelformat, see if there is a match in active format of PORT
+ * Ret: NULL - fail
+ *      otherwise - vip_fmt with fourcc matched 
+ */
+static struct vip_fmt *find_stream_format_by_pix(struct vip_stream *stream,
+					       u32 pixelformat)
+{
+	struct vip_fmt *fmt;
+	unsigned int k;
+
+	for (k = 0; k < stream->num_active_fmt; k++) {
+		fmt = stream->active_fmt[k];
+		if (fmt->fourcc == pixelformat)
+			return fmt;
+	}
+
+	return NULL;
+}
+
+/*
+ * Fill active format of stream from port
+ * For now
+ * - stream0
+ *		+ use channel LO
+ *		+ YUV422, RGB888
+ * - stream1
+ *		+ use channel UP
+ *		+ NV12/YUV420
+ */
+static void get_stream_active_format(struct vip_port *port, int stream_id)
+{
+	struct vip_stream *stream = &port->cap_streams[stream_id];
+	int i;
+	u32 *cur_fmt;
+	u32 fmt[2][] = {
+		{
+			  V4L2_PIX_FMT_UYVY
+			, V4L2_PIX_FMT_YUYV
+			, V4L2_PIX_FMT_RGB24
+			, V4L2_PIX_FMT_RGB32
+			, 0        //end of records
+		}
+		, {
+			  V4L2_PIX_FMT_NV12
+			, 0        //end of records
+		}
+	};
+
+	if( stream_id>1 ) {
+		vip_err(dev, "stream_id out of range\n");
+		return;
+	}
+	
+	//go thru supported format against port format
+	for( cur_fmt=&fmt[stream_id][0]; *cur_fmt; ++cur_fmt ) {
+		for( i=0; i<port->num_active_fmt; ++i ) {
+			if( port->active_fmt[i]->fourcc==*cur_fmt ) {
+				stream->active_fmt[stream->num_active_fmt++] = port->active_fmt[i];
+			}
+		}
+	}
+}
+
 
 inline struct vip_port *notifier_to_vip_port(struct v4l2_async_notifier *n)
 {
@@ -1005,7 +1076,8 @@ static int vip_enum_framesizes(struct file *file, void *priv,
 	struct v4l2_subdev_frame_size_enum fse;
 	int ret;
 
-	fmt = find_port_format_by_pix(port, f->pixel_format);
+	fmt = dual ? find_stream_format_by_pix(stream, f->pixel_format) :
+		find_port_format_by_pix(port, f->pixel_format);
 	if (!fmt)
 		return -EINVAL;
 
@@ -1040,7 +1112,8 @@ static int vip_enum_frameintervals(struct file *file, void *priv,
 	if (f->index)
 		return -EINVAL;
 
-	fmt = find_port_format_by_pix(port, f->pixel_format);
+	fmt = dual ? find_stream_format_by_pix(stream, f->pixel_format) :
+		find_port_format_by_pix(port, f->pixel_format);
 	if (!fmt)
 		return -EINVAL;
 
@@ -1066,7 +1139,7 @@ static int vip_enum_frameintervals(struct file *file, void *priv,
 
 		return -EINVAL;
 	}
-
+	//todo: fixed at 30fps?
 	f->type = V4L2_FRMIVAL_TYPE_DISCRETE;
 	f->discrete.numerator = 1;
 	f->discrete.denominator = 30;
@@ -1158,14 +1231,15 @@ static int vip_try_fmt_vid_cap(struct file *file, void *priv,
 		fourcc_to_str(f->fmt.pix.pixelformat),
 		f->fmt.pix.width, f->fmt.pix.height);
 
-	fmt = find_port_format_by_pix(port, f->fmt.pix.pixelformat);
+	fmt = dual ? find_stream_format_by_pix(stream, f->fmt.pix.pixelformat) :
+		find_port_format_by_pix(port, f->fmt.pix.pixelformat);
 	if (!fmt) {
 		vip_dbg(2, dev,
 			"Fourcc format (0x%08x) not found.\n",
 			f->fmt.pix.pixelformat);
 
 		/* Just get the first one enumerated */
-		fmt = port->active_fmt[0];
+		fmt = dual ? stream->active_fmt[0] : port->active_fmt[0];  //todo: 0 might be NULL?
 		f->fmt.pix.pixelformat = fmt->fourcc;
 	}
 
@@ -1260,8 +1334,8 @@ static int vip_s_fmt_vid_cap(struct file *file, void *priv,
 		return -EBUSY;
 	}
 
-	port->fmt = find_port_format_by_pix(port,
-					    f->fmt.pix.pixelformat);
+	port->fmt = dual ?  find_port_format_by_pix(stream, f->fmt.pix.pixelformat);
+				find_port_format_by_pix(port, f->fmt.pix.pixelformat);
 	stream->width		= f->fmt.pix.width;
 	stream->height		= f->fmt.pix.height;
 	stream->bytesperline	= f->fmt.pix.bytesperline;
@@ -1682,6 +1756,7 @@ static int vip_init_port(struct vip_port *port)
 		vip_dbg(1, dev, "init_port get_fmt failed in subdev\n");
 
 	/* try to find one that matches */
+	//todo, dual case, don't set FE again, the format ?
 	fmt = find_port_format_by_pix(port, mbus_fmt->code);
 	/* if no match, set our first format to subdevice */
 	if (!fmt) {
@@ -2175,6 +2250,7 @@ static int get_subdev_active_format(struct vip_port *port,
 	return 0;
 }
 
+
 //allocate vip_port structure and doublely pointed to slice
 static int alloc_port(struct vip_dev *dev, int id)
 {
@@ -2233,7 +2309,13 @@ static int vip_create_streams(struct vip_port *port,
 	if (port->endpoint->bus_type == V4L2_MBUS_PARALLEL) {
 		port->flags |= FLAG_MULT_PORT;
 		alloc_stream(port, 0, VFL_TYPE_GRABBER);
-		//todo: multipe stream, stream id=0 today
+		if( dual ) {
+			//let stream1 mapping to UP channel, fixed at format NV12/YUV420 for now
+			//format by port... todo need to change by stream
+			alloc_stream(port, 1, VFL_TYPE_GRABBER);
+			get_stream_active_format(port, 0);
+			get_stream_active_format(port, 1);
+		}
 	} else if (port->endpoint->bus_type == V4L2_MBUS_BT656) {
 		//allocate each stream for each channel of BT656... reported by subdevice
 		port->flags |= FLAG_MULT_PORT;
