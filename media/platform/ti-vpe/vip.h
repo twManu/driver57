@@ -187,6 +187,7 @@ struct vip_stream {
 	struct vb2_queue	vb_vidq;
 	//used in dual case
 	struct vip_fmt      *active_fmt[VIP_MAX_ACTIVE_FMT];
+	struct vip_fmt      *fmt;              //current format
 	int                 num_active_fmt;    //picked matching format of port 
 };
 

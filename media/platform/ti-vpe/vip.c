@@ -46,7 +46,7 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "debug level (0-8)");
 
-static bool dual=false;
+static bool g_dual=false;
 module_param(debug, bool, 0644);
 
 
@@ -697,7 +697,7 @@ static void enable_irqs(struct vip_dev *dev, int irq_num, int list_num)
 {
 	u32 reg_addr = VIP_INT0_ENABLE0_SET +
 			VIP_INTC_INTX_OFFSET * irq_num;
-
+//todo: for 1st coming
 	write_sreg(dev->shared, reg_addr, 1 << (list_num * 2));
 
 	vpdma_enable_list_complete_irq(dev->shared->vpdma,
@@ -770,7 +770,7 @@ static void start_dma(struct vip_stream *stream, struct vip_buffer *buf)
 	vpdma_update_dma_addr(dev->shared->vpdma, &stream->desc_list,
 			      dma_addr, stream->write_desc, drop_data, 0);
 
-	if (stream->port->fmt->coplanar) {
+	if (stream->port->fmt->coplanar) { //todo
 		dma_addr += stream->width * stream->height;
 		vpdma_update_dma_addr(dev->shared->vpdma, &stream->desc_list,
 				      dma_addr, stream->write_desc + 1,
@@ -943,7 +943,7 @@ static irqreturn_t vip_irq(int irq_vip, void *data)
 			vpdma_clear_list_stat(vpdma, irq_num, list_num);
 
 			//ref. to vip_start_streaming
-			if (dev->num_skip_irq)
+			if (dev->num_skip_irq)	//todo, nned to separate irq cond.
 				dev->num_skip_irq--;
 			else
 				vip_process_buffer_complete(stream);
@@ -1052,10 +1052,15 @@ static int vip_enum_fmt_vid_cap(struct file *file, void *priv,
 	struct vip_fmt *fmt;
 
 	vip_dbg(3, dev, "enum_fmt index:%d\n", f->index);
-	if (f->index >= port->num_active_fmt)
-		return -EINVAL;
-
-	fmt = port->active_fmt[f->index];
+	if (g_dual) {
+		if( f->index >= stream->num_active_fmt )
+			return -EINVAL;
+		fmt = stream->active_fmt[f->index];
+	} else {
+		if (f->index >= port->num_active_fmt)
+			return -EINVAL;
+		fmt = port->active_fmt[f->index];
+	}
 
 	strncpy(f->description, fmt->name, sizeof(f->description) - 1);
 	f->pixelformat = fmt->fourcc;
@@ -1076,7 +1081,7 @@ static int vip_enum_framesizes(struct file *file, void *priv,
 	struct v4l2_subdev_frame_size_enum fse;
 	int ret;
 
-	fmt = dual ? find_stream_format_by_pix(stream, f->pixel_format) :
+	fmt = g_dual ? find_stream_format_by_pix(stream, f->pixel_format) :
 		find_port_format_by_pix(port, f->pixel_format);
 	if (!fmt)
 		return -EINVAL;
@@ -1112,7 +1117,7 @@ static int vip_enum_frameintervals(struct file *file, void *priv,
 	if (f->index)
 		return -EINVAL;
 
-	fmt = dual ? find_stream_format_by_pix(stream, f->pixel_format) :
+	fmt = g_dual ? find_stream_format_by_pix(stream, f->pixel_format) :
 		find_port_format_by_pix(port, f->pixel_format);
 	if (!fmt)
 		return -EINVAL;
@@ -1231,7 +1236,7 @@ static int vip_try_fmt_vid_cap(struct file *file, void *priv,
 		fourcc_to_str(f->fmt.pix.pixelformat),
 		f->fmt.pix.width, f->fmt.pix.height);
 
-	fmt = dual ? find_stream_format_by_pix(stream, f->fmt.pix.pixelformat) :
+	fmt = g_dual ? find_stream_format_by_pix(stream, f->fmt.pix.pixelformat) :
 		find_port_format_by_pix(port, f->fmt.pix.pixelformat);
 	if (!fmt) {
 		vip_dbg(2, dev,
@@ -1239,7 +1244,7 @@ static int vip_try_fmt_vid_cap(struct file *file, void *priv,
 			f->fmt.pix.pixelformat);
 
 		/* Just get the first one enumerated */
-		fmt = dual ? stream->active_fmt[0] : port->active_fmt[0];  //todo: 0 might be NULL?
+		fmt = g_dual ? stream->active_fmt[0] : port->active_fmt[0];  //todo: 0 might be NULL?
 		f->fmt.pix.pixelformat = fmt->fourcc;
 	}
 
@@ -1289,9 +1294,9 @@ static int vip_g_fmt_vid_cap(struct file *file, void *priv,
 	/* Use last known values or defaults */
 	f->fmt.pix.width	= stream->width;
 	f->fmt.pix.height	= stream->height;
-	f->fmt.pix.pixelformat	= port->fmt->fourcc;
+	f->fmt.pix.pixelformat	= g_gual ? stream->fmt->fourcc : port->fmt->fourcc;
 	f->fmt.pix.field	= stream->sup_field;
-	f->fmt.pix.colorspace	= port->fmt->colorspace;
+	f->fmt.pix.colorspace	= g_gual ? stream->fmt->fourcc : port->fmt->colorspace;
 	f->fmt.pix.bytesperline	= stream->bytesperline;
 	f->fmt.pix.sizeimage	= stream->sizeimage;
 
@@ -1302,7 +1307,7 @@ static int vip_g_fmt_vid_cap(struct file *file, void *priv,
 		f->fmt.pix.width, f->fmt.pix.height,
 		f->fmt.pix.bytesperline, f->fmt.pix.sizeimage);
 	vip_dbg(3, dev, "g_fmt vpdma data type: 0x%02X\n",
-		port->fmt->vpdma_fmt[0]->data_type);
+		g_gual ? stream->fmt->vpdma_fmt[0]->data_type :  port->fmt->vpdma_fmt[0]->data_type);
 
 	return 0;
 }
@@ -1334,7 +1339,7 @@ static int vip_s_fmt_vid_cap(struct file *file, void *priv,
 		return -EBUSY;
 	}
 
-	port->fmt = dual ?  find_port_format_by_pix(stream, f->fmt.pix.pixelformat);
+	port->fmt = g_dual ?  find_stream_format_by_pix(stream, f->fmt.pix.pixelformat);
 				find_port_format_by_pix(port, f->fmt.pix.pixelformat);
 	stream->width		= f->fmt.pix.width;
 	stream->height		= f->fmt.pix.height;
@@ -1365,7 +1370,7 @@ static int vip_s_fmt_vid_cap(struct file *file, void *priv,
 		mf->width, mf->height);
 
 	sfmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
-	sfmt.pad = 0;
+	sfmt.pad = 0; //todo not a 2nd time
 	ret = v4l2_subdev_call(port->subdev, pad, set_fmt, NULL, &sfmt);
 	if (ret) {
 		vip_dbg(1, dev, "set_fmt failed in subdev\n");
@@ -1379,7 +1384,7 @@ static int vip_s_fmt_vid_cap(struct file *file, void *priv,
 		mf->code,
 		mf->width, mf->height);
 	vip_dbg(3, dev, "s_fmt vpdma data type: 0x%02X\n",
-		port->fmt->vpdma_fmt[0]->data_type);
+		g_dual ? stream->fmt->vpdma_fmt[0]->data_type : port->fmt->vpdma_fmt[0]->data_type);
 
 	return 0;
 }
@@ -1387,6 +1392,7 @@ static int vip_s_fmt_vid_cap(struct file *file, void *priv,
 /*
  * Set the registers that are modified when the video format changes.
  */
+ //todo
 static void set_fmt_params(struct vip_stream *stream)
 {
 	struct vip_dev *dev = stream->port->dev;
@@ -1394,7 +1400,7 @@ static void set_fmt_params(struct vip_stream *stream)
 
 	stream->sequence = 0;
 	stream->field = V4L2_FIELD_TOP;
-
+	//todo: set once
 	if (stream->port->fmt->colorspace == V4L2_COLORSPACE_SRGB) {
 		vip_set_slice_path(dev, VIP_RGB_OUT_LO_DATA_SELECT);
 		/* Set alpha component in background color */
@@ -1585,6 +1591,8 @@ static void vip_buf_queue(struct vb2_buffer *vb)
 	spin_unlock_irqrestore(&dev->slock, flags);
 }
 
+
+//should make both running and the other with drop buffer
 static int vip_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct vip_stream *stream = vb2_get_drv_priv(vq);
@@ -1607,6 +1615,7 @@ static int vip_start_streaming(struct vb2_queue *vq, unsigned int count)
 	stream->field = V4L2_FIELD_TOP;
 
 	if (port->subdev) {
+		//once
 		ret = v4l2_subdev_call(port->subdev, video, s_stream, 1);
 		if (ret) {
 			vip_dbg(1, dev, "stream on failed in subdev\n");
@@ -1623,7 +1632,7 @@ static int vip_start_streaming(struct vb2_queue *vq, unsigned int count)
 	 * only to queue up descriptors, and then they will also be used
 	 * as End of Frame (EOF) event
 	 */
-	dev->num_skip_irq = VIP_VPDMA_FIFO_SIZE;
+	dev->num_skip_irq = VIP_VPDMA_FIFO_SIZE;	//todo: large change error
 
 	spin_lock_irqsave(&dev->slock, flags);
 	if (vpdma_list_busy(dev->shared->vpdma, stream->list_num)) {
@@ -1728,7 +1737,7 @@ done:
  *    - sync the format with subdevice
  *    - get the interlace and dimension settings
  */
-static int vip_init_port(struct vip_port *port)
+static int vip_init_port(struct vip_port *port)   todo need stream_id
 {
 	int ret;
 	struct vip_dev *dev = port->dev;
@@ -1775,7 +1784,7 @@ static int vip_init_port(struct vip_port *port)
 	}
 
 	/* Assign current format */
-	port->fmt = fmt;
+	port->fmt = fmt;  todo set stream->fmt
 	port->mbus_framefmt = *mbus_fmt;
 
 	vip_dbg(3, dev, "vip_init_port: g_mbus_fmt subdev mbus_code: %04X fourcc:%s size: %dx%d\n",
@@ -1812,12 +1821,12 @@ static int vip_init_stream(struct vip_stream *stream)
 	struct v4l2_format f;
 	int ret;
 
-	ret = vip_init_port(port);
+	ret = vip_init_port(port);   //todo need to create everything when one if init'ed, say dma, stream struct
 	if (ret != 0)
 		return ret;
 
-	fmt = port->fmt;
-	mbus_fmt = &port->mbus_framefmt;
+	fmt = port->fmt;  //todo stream->fmt
+	mbus_fmt = &port->mbus_framefmt;  //todo maybe diff for two streams
 
 	/* Properly calculate the sizeimage and bytesperline values. */
 	v4l2_fill_pix_format(&f.fmt.pix, mbus_fmt);
@@ -1862,6 +1871,7 @@ static void vip_release_dev(struct vip_dev *dev)
 		vip_set_clock_enable(dev, 0);
 }
 
+//todo: just once
 static int vip_setup_parser(struct vip_port *port)
 {
 	struct vip_dev *dev = port->dev;
@@ -2177,6 +2187,14 @@ do_free_stream:
 	return ret;
 }
 
+/*
+ * Pretty much the counterpart of create_stream
+ * - free buffer in dropq
+ * - unregister video_device
+ * - free hw list
+ * - Null port->cap_streams[x] of given stream
+ * - free stream space
+ */
 static void free_stream(struct vip_stream *stream)
 {
 	struct vip_dev *dev;
@@ -2293,6 +2311,11 @@ static void vip_vpdma_fw_cb(struct platform_device *pdev)
 	}
 }
 
+/*
+ * Create a stream/video_device when a subdevice is found and bound
+ * NOTE: previous streams attached to port is freed
+ * todo: to deal with composite subdev
+ */
 static int vip_create_streams(struct vip_port *port,
 			      struct v4l2_subdev *subdev)
 {
@@ -2309,7 +2332,7 @@ static int vip_create_streams(struct vip_port *port,
 	if (port->endpoint->bus_type == V4L2_MBUS_PARALLEL) {
 		port->flags |= FLAG_MULT_PORT;
 		alloc_stream(port, 0, VFL_TYPE_GRABBER);
-		if( dual ) {
+		if( g_dual ) {
 			//let stream1 mapping to UP channel, fixed at format NV12/YUV420 for now
 			//format by port... todo need to change by stream
 			alloc_stream(port, 1, VFL_TYPE_GRABBER);
@@ -2329,7 +2352,13 @@ static int vip_create_streams(struct vip_port *port,
 	return 0;
 }
 
-//called by port, allocate video device and associated queue, for each stream
+/*
+ * called by port, allocate video device and associated queue, for each stream
+ * If there was an subdev attached
+ *	 - if new device listed before attached in of tree, previous stream freed and a new stream
+ *     created for this port
+ *   - else the new device is ignored 
+ */
 static int vip_async_bound(struct v4l2_async_notifier *notifier,
 			   struct v4l2_subdev *subdev,
 			   struct v4l2_async_subdev *asd)
@@ -2343,7 +2372,7 @@ static int vip_async_bound(struct v4l2_async_notifier *notifier,
 	vip_dbg(1, dev, "vip_async_bound\n");
 	if (idx > config->asd_sizes)
 		return -EINVAL;
-
+	//maybe we can just remember subsubdev
 	if (port->subdev) {
 		if (asd < port->subdev->asd)
 			/* Notified of a subdev earlier in the array */
