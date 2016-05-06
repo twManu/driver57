@@ -141,6 +141,9 @@ void sc_set_vs_coeffs(struct sc_data *sc, void *addr, unsigned int src_h,
 	sc->load_coeff_v = true;
 }
 
+/*
+ * set SC register in given sc_data according to src/dst parameter
+ */
 void sc_config_scaler(struct sc_data *sc, u32 *sc_reg0, u32 *sc_reg8,
 		u32 *sc_reg17, unsigned int src_w, unsigned int src_h,
 		unsigned int dst_w, unsigned int dst_h)

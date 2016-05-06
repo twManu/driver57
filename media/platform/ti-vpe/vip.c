@@ -1670,7 +1670,7 @@ static void vip_stop_streaming(struct vb2_queue *vq)
 	struct vip_dev *dev = port->dev;
 	struct vip_buffer *buf;
 	int ret;
-
+//todo: avoid stop, irq
 	if (port->subdev) {
 		ret = v4l2_subdev_call(port->subdev, video, s_stream, 0);
 		if (ret)
