@@ -12,6 +12,15 @@
  * the Free Software Foundation.
  */
 
+/*
+	vpdma_alloc_desc_buf ... open
+	sc_set_hs_coeffs ... set format
+	
+	vpdma_map_desc_buf ... start/irq, when coeff changes
+	vpdma_add_cfd_block ... start/irq, when coeff changes
+	vpdma_unmap_desc_buf ... irq done
+	vpdma_free_desc_buf ... release
+ */
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
@@ -54,8 +63,9 @@ void sc_dump_regs(struct sc_data *sc)
 }
 
 /*
- * set the horizontal scaler coefficients according to the ratio of output to
- * input widths, after accounting for up to two levels of decimation
+ * - copy target horizontal scaler coefficients to given addr
+ * - the coefficients is picked according to the ratio of output to input widths
+ *	+ after accounting for up to two levels of decimation
  */
 void sc_set_hs_coeffs(struct sc_data *sc, void *addr, unsigned int src_w,
 		unsigned int dst_w)
@@ -69,6 +79,8 @@ void sc_set_hs_coeffs(struct sc_data *sc, void *addr, unsigned int src_w,
 	if (dst_w > src_w) {
 		idx = HS_UP_SCALE;
 	} else {
+		//less or equal source
+		//
 		if ((dst_w << 1) < src_w)
 			dst_w <<= 1;	/* first level decimation */
 		if ((dst_w << 1) < src_w)
@@ -271,6 +283,10 @@ void sc_config_scaler(struct sc_data *sc, u32 *sc_reg0, u32 *sc_reg8,
 	*sc_reg24 = (src_w << CFG_ORG_W_SHIFT) | (src_h << CFG_ORG_H_SHIFT);
 }
 
+/*
+ * - get the memory description from "sc" of platform device
+ * - map it as sc->base
+ */
 struct sc_data *sc_create(struct platform_device *pdev)
 {
 	struct sc_data *sc;
