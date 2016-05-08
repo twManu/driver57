@@ -52,6 +52,9 @@
 #define VIP_VBI_STREAMS_PER_PORT	16
 
 #define VIP_MAX_SUBDEV			5
+#define CFD_VIP_SC0_CLIENT      7
+#define CFD_VIP_SC1_CLIENT      8
+
 /*
  * This value needs to be at least as large as the number of entry in
  * vip_formats[].
@@ -96,6 +99,7 @@ struct vip_shared {
 	struct vpdma_data	vpdma_data;
 	struct vpdma_data	*vpdma;
 	struct vip_dev		*devs[VIP_NUM_SLICES]; //There are two vip_dev structure, one for each vip slice: VIP1 & VIP2.
+	struct vpdma_buf	mmr_adb;		/* shadow reg addr/data block */
 };
 
 struct vip_async_config {
@@ -129,6 +133,8 @@ struct vip_dev {
 	struct vip_port		*ports[VIP_NUM_PORTS];
 
 	const char		*vip_name;
+	struct vpdma_buf	sc_coeff_h;		/* h coeff buffer */
+	struct vpdma_buf	sc_coeff_v;		/* v coeff buffer */
 };
 
 /*

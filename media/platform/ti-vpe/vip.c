@@ -222,6 +222,48 @@ static struct vip_fmt vip_formats[] = {
 	},
 };
 
+
+/*
+ * DMA address/data block for the shadow registers
+ */
+struct vip_mmr_adb {
+	struct vpdma_adb_hdr	sc_hdr0;
+	u32			sc_regs0[7];
+	u32			sc_pad0[1];
+	struct vpdma_adb_hdr	sc_hdr8;
+	u32			sc_regs8[6];
+	u32			sc_pad8[2];
+	struct vpdma_adb_hdr	sc_hdr17;
+	u32			sc_regs17[9];
+	u32			sc_pad17[3];
+};
+
+#define GET_OFFSET_TOP(ctx, obj, reg)	\
+	((obj)->res->start - ctx->dev->res->start + reg)
+
+#define VIP_SET_MMR_ADB_HDR(ctx, hdr, regs, offset_a)	\
+	VPDMA_SET_MMR_ADB_HDR(ctx->mmr_adb, vip_mmr_adb, hdr, regs, offset_a)
+
+/*
+ * Set the headers for all of the address/data block structures.
+ */
+static void init_adb_hdrs(struct vip_ctx *ctx)
+{
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr0, sc_regs0,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc0, CFG_SC0));
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr8, sc_regs8,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc0, CFG_SC8));
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr17, sc_regs17,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc0, CFG_SC17));
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr0, sc_regs0,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc1, CFG_SC0));
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr8, sc_regs8,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc1, CFG_SC8));
+	VPE_SET_MMR_ADB_HDR(ctx, sc_hdr17, sc_regs17,
+		GET_OFFSET_TOP(ctx, ctx->dev->sc1, CFG_SC17));
+};
+
+
 /*  Print Four-character-code (FOURCC) */
 static char *fourcc_to_str(u32 fmt)
 {
